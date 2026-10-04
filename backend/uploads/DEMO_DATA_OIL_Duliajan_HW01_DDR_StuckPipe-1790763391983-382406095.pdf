@@ -1,0 +1,73 @@
+%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj
+4 0 obj << /Length 1879 >>
+stream
+BT
+/F1 14 Tf
+50 760 Td
+18 TL
+(DEMO DATA — Daily Drilling Report #42 \(Stuck Pipe Incident\)) Tj
+T*
+/F1 10 Tf
+14 TL
+(=========================================================================) Tj
+T*
+(DEMO DATA - OIL INDIA LIMITED | EASTERN REGION ASSET) Tj
+T*
+(DAILY DRILLING REPORT #42 \(OPERATIONS SUMMARY\)) Tj
+T*
+(=========================================================================) Tj
+T*
+(Well: Duliajan-NWIS-01 | Well ID: OIL-NWIS-ACT-001 | Field: Duliajan) Tj
+T*
+(Spud Date: 12-JAN-2025 | Target TD: 3400m | Current Depth: 2850m) Tj
+T*
+(Formation: Barail Group \(Shale / Sandstone sequence\)) Tj
+T*
+(-------------------------------------------------------------------------) Tj
+T*
+(DRILLING EVENT: STUCK PIPE at 2850m \(Severity: HIGH\)) Tj
+T*
+(Description: Differential sticking in Barail shale member. Drill string could not rotate or POOH.) Tj
+T*
+(Cause: High overbalance pressure against permeable sand lens with 45 minutes static time during directional survey.) Tj
+T*
+(Mitigation: Spotted 150 bbl diesel/glycol spotting pill. Applied 15t overpull with hydraulic jar activation sequence.) Tj
+T*
+(Outcome: String freed after 4.5 hours NPT. Circulated bottom-up clean before resuming rotary drilling.) Tj
+T*
+(NPT Hours: 4.5) Tj
+T*
+(-------------------------------------------------------------------------) Tj
+T*
+(DRILLING PARAMETERS AT EVENT:) Tj
+T*
+(WOB: 14 t | RPM: 60 | Torque: 22 kN.m | ROP: 4.2 m/hr) Tj
+T*
+(MW: 1.38 g/cc | SPP: 240 bar | Flow Rate: 2200 L/min) Tj
+T*
+(-------------------------------------------------------------------------) Tj
+T*
+(LESSONS LEARNED: Limit static time to under 15 minutes when drilling Barail shale intervals with overbalance.) Tj
+T*
+(BEST PRACTICE: Pre-mix 200L diesel spotting fluid prior to drilling lower Barail target section.) Tj
+T*
+(=========================================================================) Tj
+T*
+ET
+endstream endobj
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000002172 00000 n 
+trailer << /Size 6 /Root 1 0 R >>
+startxref
+2242
+%%EOF

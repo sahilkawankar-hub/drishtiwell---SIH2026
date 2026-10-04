@@ -1,0 +1,47 @@
+/**
+ * Geospatial utilities for eRTMAC-NWIS
+ * Reusable geographic calculations – keep formulas OUT of route handlers.
+ */
+
+const EARTH_RADIUS_KM = 6371;
+
+/**
+ * Haversine formula: calculates the great-circle distance between two
+ * points on a sphere given their latitude/longitude in decimal degrees.
+ *
+ * @returns distance in kilometres
+ */
+export function calculateDistanceKm(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+
+  return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Convert kilometres to metres (for Leaflet Circle radius).
+ */
+export function kmToMetres(km: number): number {
+  return km * 1000;
+}
+
+/**
+ * Format a bearing in degrees to a compass direction string.
+ * e.g. 0 → "N", 90 → "E", 225 → "SW"
+ */
+export function bearingToCompass(degrees: number): string {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const idx = Math.round((degrees % 360) / 45) % 8;
+  return dirs[idx];
+}

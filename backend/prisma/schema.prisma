@@ -1,0 +1,321 @@
+// eRTMAC-NWIS Prisma Schema
+// Designed for PostgreSQL (Supabase) with SQLite fallback for local dev
+// To switch to PostgreSQL: change provider to "postgresql"
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// USERS
+// ─────────────────────────────────────────────
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      String   @default("ENGINEER") // ADMIN, ENGINEER, GEOLOGIST, MANAGER
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  alerts          Alert[]
+  recommendations Recommendation[]
+}
+
+// ─────────────────────────────────────────────
+// WELLS
+// ─────────────────────────────────────────────
+model Well {
+  id             String    @id @default(cuid())
+  wellId         String    @unique // e.g. OIL-DEMO-001
+  wellName       String
+  field          String
+  block          String
+  latitude       Float
+  longitude      Float
+  spudDate       DateTime?
+  completionDate DateTime?
+  currentDepth   Float     @default(0) // meters
+  totalDepth     Float?    // meters
+  status         String    @default("PLANNED") // ACTIVE, DRILLING, COMPLETED, ABANDONED, PLANNED
+  operator       String    @default("Oil India Limited")
+  wellType       String    @default("VERTICAL") // VERTICAL, DIRECTIONAL, HORIZONTAL
+  isActive       Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Formation info
+  targetFormation String?
+  currentFormation String?
+
+  // Relationships
+  drillingEvents     DrillingEvent[]
+  drillingParameters DrillingParameter[]
+  riskEvents         RiskEvent[]
+  alerts             Alert[]
+  recommendations    Recommendation[]
+  historicalDocuments HistoricalDocument[]
+  wellComparisons    WellComparison[]     @relation("ActiveWell")
+  offsetComparisons  WellComparison[]     @relation("OffsetWell")
+  formations         WellFormation[]
+}
+
+// ─────────────────────────────────────────────
+// WELL TRAJECTORY
+// ─────────────────────────────────────────────
+model WellTrajectory {
+  id          String   @id @default(cuid())
+  wellId      String
+  measuredDepth Float
+  trueVerticalDepth Float
+  inclination Float
+  azimuth     Float
+  northing    Float
+  easting     Float
+  createdAt   DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// FORMATIONS
+// ─────────────────────────────────────────────
+model Formation {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  code        String   @unique
+  description String?
+  ageEra      String?  // e.g., "Cretaceous", "Jurassic"
+  lithology   String?  // e.g., "Sandstone", "Shale", "Limestone"
+  createdAt   DateTime @default(now())
+
+  wellFormations WellFormation[]
+  drillingEvents DrillingEvent[]
+  riskEvents     RiskEvent[]
+}
+
+// Junction: Well ↔ Formation (with depth range)
+model WellFormation {
+  id          String    @id @default(cuid())
+  wellId      String
+  formationId String
+  topDepth    Float     // meters
+  bottomDepth Float     // meters
+  isActive    Boolean   @default(false)
+
+  well      Well      @relation(fields: [wellId], references: [id], onDelete: Cascade)
+  formation Formation @relation(fields: [formationId], references: [id])
+
+  @@unique([wellId, formationId])
+}
+
+// ─────────────────────────────────────────────
+// DRILLING EVENTS
+// ─────────────────────────────────────────────
+model DrillingEvent {
+  id           String   @id @default(cuid())
+  wellId       String
+  formationId  String?
+  eventType    String   // MUD_LOSS, STUCK_PIPE, OVERPRESSURE, TORQUE_SPIKE, CEMENTING_ISSUE, KICK, WASHOUT, BIT_DAMAGE
+  depth        Float    // meters MD
+  timestamp    DateTime
+  severity     String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  description  String
+  cause        String?
+  mitigation   String?
+  outcome      String?
+  duration     Float?   // hours
+  nptHours     Float?   // Non-Productive Time in hours
+  mudLossRate  Float?   // m3/hr for mud loss events
+  sourceDocumentId String?
+  createdAt    DateTime @default(now())
+
+  well      Well      @relation(fields: [wellId], references: [id], onDelete: Cascade)
+  formation Formation? @relation(fields: [formationId], references: [id])
+  sourceDocument HistoricalDocument? @relation(fields: [sourceDocumentId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// DRILLING PARAMETERS (time-series)
+// ─────────────────────────────────────────────
+model DrillingParameter {
+  id              String   @id @default(cuid())
+  wellId          String
+  timestamp       DateTime
+  depth           Float    // meters MD
+  wob             Float?   // Weight on Bit (tonnes)
+  rpm             Float?   // Rotary Speed (rpm)
+  torque          Float?   // kN.m
+  rop             Float?   // Rate of Penetration (m/hr)
+  mudWeight       Float?   // g/cc
+  standpipePressure Float? // bar
+  flowRate        Float?   // L/min
+  hookLoad        Float?   // tonnes
+  ecd             Float?   // Equivalent Circulating Density g/cc
+  mse             Float?   // Mechanical Specific Energy kJ/m3
+  createdAt       DateTime @default(now())
+
+  well Well @relation(fields: [wellId], references: [id], onDelete: Cascade)
+
+  @@index([wellId, timestamp])
+}
+
+// ─────────────────────────────────────────────
+// HISTORICAL DOCUMENTS
+// ─────────────────────────────────────────────
+model HistoricalDocument {
+  id           String   @id @default(cuid())
+  wellId       String?
+  title        String
+  documentType String   // WELL_REPORT, MUD_LOG, COMPLETION_REPORT, POST_WELL_ANALYSIS, DAILY_REPORT
+  fileUrl      String?
+  fileSize     Int?
+  mimeType     String?
+  uploadedAt   DateTime @default(now())
+  processedAt  DateTime?
+  status       String   @default("PENDING") // PENDING, PROCESSING, PROCESSED, ERROR
+
+  well          Well?         @relation(fields: [wellId], references: [id])
+  extractions   DocumentExtraction[]
+  drillingEvents DrillingEvent[]
+}
+
+// ─────────────────────────────────────────────
+// DOCUMENT EXTRACTIONS (AI/OCR results)
+// ─────────────────────────────────────────────
+model DocumentExtraction {
+  id           String   @id @default(cuid())
+  documentId   String
+  extractionType String // EVENT, PARAMETER, FORMATION, LESSON_LEARNED, RISK
+  confidence   Float    @default(0.0) // 0-1 confidence score
+  rawText      String?
+  structuredData String? // JSON string of extracted data
+  extractedAt  DateTime @default(now())
+  aiProvider   String?  // which AI was used
+
+  document HistoricalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// RISK EVENTS
+// ─────────────────────────────────────────────
+model RiskEvent {
+  id                 String   @id @default(cuid())
+  wellId             String
+  formationId        String?
+  riskType           String   // MUD_LOSS, STUCK_PIPE, OVERPRESSURE, TORQUE_SPIKE, CEMENTING_ISSUE, KICK
+  depth              Float    // meters
+  severity           String   // LOW, MEDIUM, HIGH, CRITICAL
+  probability        Float    // 0-1
+  evidence           String?  // JSON array of evidence points
+  historicalRefs     String?  // JSON array of well IDs referenced
+  mitigation         String?
+  status             String   @default("ACTIVE") // ACTIVE, RESOLVED, MONITORING
+  detectedAt         DateTime @default(now())
+  resolvedAt         DateTime?
+  createdAt          DateTime @default(now())
+
+  well      Well      @relation(fields: [wellId], references: [id], onDelete: Cascade)
+  formation Formation? @relation(fields: [formationId], references: [id])
+  alerts    Alert[]
+}
+
+// ─────────────────────────────────────────────
+// RISK RULES (configurable rule engine)
+// ─────────────────────────────────────────────
+model RiskRule {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  riskType    String
+  conditions  String   // JSON: threshold conditions
+  severity    String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// ALERTS
+// ─────────────────────────────────────────────
+model Alert {
+  id                String   @id @default(cuid())
+  wellId            String
+  riskEventId       String?
+  userId            String?
+  alertType         String   // PREDICTIVE, REALTIME, THRESHOLD, PROXIMITY
+  severity          String   // INFO, WARNING, HIGH, CRITICAL
+  depth             Float?
+  formation         String?
+  message           String
+  evidence          String?  // JSON
+  recommendedAction String?
+  status            String   @default("ACTIVE") // ACTIVE, ACKNOWLEDGED, DISMISSED, RESOLVED
+  acknowledgedAt    DateTime?
+  resolvedAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  well      Well       @relation(fields: [wellId], references: [id], onDelete: Cascade)
+  riskEvent RiskEvent? @relation(fields: [riskEventId], references: [id])
+  user      User?      @relation(fields: [userId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// AI RECOMMENDATIONS
+// ─────────────────────────────────────────────
+model Recommendation {
+  id           String   @id @default(cuid())
+  wellId       String
+  userId       String?
+  category     String   // MUD_PROGRAM, CASING_DESIGN, BIT_SELECTION, WEIGHT_PROGRAM, CEMENTING, GENERAL
+  priority     String   // LOW, MEDIUM, HIGH, CRITICAL
+  title        String
+  content      String
+  rationale    String?
+  references   String?  // JSON array of well IDs or document IDs
+  aiProvider   String?  // which AI model generated this
+  confidence   Float    @default(0.0)
+  status       String   @default("PENDING") // PENDING, REVIEWED, ACCEPTED, REJECTED
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  well Well  @relation(fields: [wellId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// WELL COMPARISON
+// ─────────────────────────────────────────────
+model WellComparison {
+  id           String   @id @default(cuid())
+  activeWellId String
+  offsetWellId String
+  similarityScore Float @default(0.0) // 0-1
+  matchedFormations String? // JSON array
+  comparedAt   DateTime @default(now())
+  notes        String?
+
+  activeWell Well @relation("ActiveWell", fields: [activeWellId], references: [id])
+  offsetWell Well @relation("OffsetWell", fields: [offsetWellId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// KNOWLEDGE REPOSITORY
+// ─────────────────────────────────────────────
+model KnowledgeEntry {
+  id          String   @id @default(cuid())
+  title       String
+  category    String   // LESSON_LEARNED, BEST_PRACTICE, MITIGATION, GEOLOGICAL_NOTE
+  content     String
+  tags        String?  // JSON array
+  wellRef     String?  // reference well name
+  depthRef    Float?
+  formationRef String?
+  author      String?
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

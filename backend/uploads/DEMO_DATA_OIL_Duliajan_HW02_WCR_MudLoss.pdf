@@ -1,0 +1,73 @@
+%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj
+4 0 obj << /Length 1916 >>
+stream
+BT
+/F1 14 Tf
+50 760 Td
+18 TL
+(DEMO DATA — Well Completion Report \(Kopili Mud Loss Section\)) Tj
+T*
+/F1 10 Tf
+14 TL
+(=========================================================================) Tj
+T*
+(DEMO DATA - OIL INDIA LIMITED | EXPLORATION & PRODUCTION) Tj
+T*
+(WELL COMPLETION REPORT - GEOLOGICAL SECTION 8-1/2 INCH) Tj
+T*
+(=========================================================================) Tj
+T*
+(Well: Duliajan-NWIS-01 | Well ID: OIL-NWIS-ACT-001 | Field: Duliajan) Tj
+T*
+(Section: Kopili Formation \(Fractured Limestone & Calcareous Siltstone\)) Tj
+T*
+(Depth Interval: 2350m - 2650m | Section Depth: 2420m) Tj
+T*
+(-------------------------------------------------------------------------) Tj
+T*
+(DRILLING EVENT: MUD LOSS at 2420m \(Severity: HIGH\)) Tj
+T*
+(Description: Severe mud loss observed in Kopili Formation. Rate: 12 m3/hr into fractured zone.) Tj
+T*
+(Cause: Natural micro-fractures in upper Kopili carbonate stringer coupled with excessive ECD during surge.) Tj
+T*
+(Mitigation: Reduced flow rate from 2400 to 1800 L/min. Spotted coarse and medium nutshell LCM pill \(50 bbl\).) Tj
+T*
+(Outcome: Full returns established after 2.0 hours. Resumed drilling with managed equivalent circulating density.) Tj
+T*
+(NPT Hours: 2.0 | Mud Loss Rate: 12 m3/hr) Tj
+T*
+(-------------------------------------------------------------------------) Tj
+T*
+(DRILLING PARAMETERS AT EVENT:) Tj
+T*
+(WOB: 12 t | RPM: 75 | Torque: 16 kN.m | ROP: 6.8 m/hr) Tj
+T*
+(MW: 1.32 g/cc | SPP: 210 bar | Flow Rate: 1800 L/min) Tj
+T*
+(-------------------------------------------------------------------------) Tj
+T*
+(LESSONS LEARNED: Pre-treat drilling fluid with fine fiber LCM prior to penetrating Kopili limestone top.) Tj
+T*
+(BEST PRACTICE: Stage mud weight reduction and monitor pit levels at 5-minute intervals in fractured zones.) Tj
+T*
+(=========================================================================) Tj
+T*
+ET
+endstream endobj
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000002209 00000 n 
+trailer << /Size 6 /Root 1 0 R >>
+startxref
+2279
+%%EOF

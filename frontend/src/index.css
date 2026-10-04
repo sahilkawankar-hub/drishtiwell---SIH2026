@@ -1,0 +1,218 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base Styles ─────────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    @apply text-sm antialiased;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+  }
+
+  body {
+    @apply bg-surface-50 text-surface-800 font-sans;
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track { background: #f1f5f9; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+}
+
+/* ─── Component Styles ────────────────────────────────────────────────────── */
+@layer components {
+
+  /* Cards */
+  .card {
+    @apply bg-white border border-surface-200 rounded-lg shadow-card;
+  }
+  .card-hover {
+    @apply card transition-all duration-150 hover:border-primary-300 hover:shadow-card-md cursor-pointer;
+  }
+
+  /* Badges — light industrial */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-2xs font-semibold tracking-wide;
+  }
+  .badge-critical {
+    @apply badge bg-status-criticalBg text-status-critical border border-status-criticalBorder;
+  }
+  .badge-high {
+    @apply badge bg-status-highBg text-status-high border border-status-highBorder;
+  }
+  .badge-warning {
+    @apply badge bg-status-warningBg text-status-warning border border-status-warningBorder;
+  }
+  .badge-info {
+    @apply badge bg-status-infoBg text-status-info border border-status-infoBorder;
+  }
+  .badge-normal {
+    @apply badge bg-status-normalBg text-status-normal border border-status-normalBorder;
+  }
+
+  /* Status dots */
+  .status-dot {
+    @apply inline-block w-2 h-2 rounded-full;
+  }
+  .status-dot-critical { @apply status-dot bg-status-critical animate-pulse; }
+  .status-dot-high     { @apply status-dot bg-status-high animate-pulse-slow; }
+  .status-dot-warning  { @apply status-dot bg-status-warning; }
+  .status-dot-normal   { @apply status-dot bg-status-normal; }
+  .status-dot-info     { @apply status-dot bg-status-info; }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium
+           transition-all duration-150 cursor-pointer border;
+  }
+  .btn-primary {
+    @apply btn bg-primary-600 border-primary-600 text-white hover:bg-primary-500 hover:border-primary-500;
+  }
+  .btn-ghost {
+    @apply btn bg-white border-surface-300 text-surface-600 hover:bg-surface-100 hover:text-surface-800;
+  }
+  .btn-danger {
+    @apply btn bg-status-criticalBg border-status-criticalBorder text-status-critical hover:bg-red-100;
+  }
+
+  /* Metric card */
+  .metric-card {
+    @apply card p-4 flex flex-col gap-1;
+  }
+  .metric-value {
+    @apply text-2xl font-bold font-mono text-surface-900;
+  }
+  .metric-label {
+    @apply text-2xs text-surface-500 font-medium uppercase tracking-wider;
+  }
+  .metric-sub {
+    @apply text-xs text-surface-500;
+  }
+
+  /* Data table */
+  .data-table {
+    @apply w-full text-sm;
+  }
+  .data-table thead tr {
+    @apply border-b border-surface-200 bg-surface-50;
+  }
+  .data-table thead th {
+    @apply text-left py-2.5 px-3 text-2xs font-semibold uppercase tracking-wider text-surface-500;
+  }
+  .data-table tbody tr {
+    @apply border-b border-surface-100 hover:bg-surface-50 transition-colors;
+  }
+  .data-table tbody td {
+    @apply py-2.5 px-3 text-surface-700;
+  }
+
+  /* Section title */
+  .section-title {
+    @apply text-xs font-semibold uppercase tracking-wider text-surface-500 mb-3;
+  }
+
+  /* Alert banner */
+  .alert-banner {
+    @apply flex items-start gap-3 p-3 rounded-lg border;
+  }
+  .alert-critical {
+    @apply alert-banner bg-status-criticalBg border-status-criticalBorder text-status-critical;
+  }
+  .alert-high {
+    @apply alert-banner bg-status-highBg border-status-highBorder text-status-high;
+  }
+  .alert-warning {
+    @apply alert-banner bg-status-warningBg border-status-warningBorder text-status-warning;
+  }
+  .alert-info {
+    @apply alert-banner bg-status-infoBg border-status-infoBorder text-status-info;
+  }
+
+  /* Sidebar nav link */
+  .nav-link {
+    @apply flex items-center gap-2.5 px-3 py-2 rounded text-sm text-surface-600
+           hover:bg-primary-50 hover:text-primary-700 transition-all duration-150;
+  }
+  .nav-link-active {
+    @apply nav-link bg-primary-50 text-primary-700 font-medium border-l-2 border-primary-500;
+  }
+
+  /* Form input */
+  .form-input {
+    @apply w-full bg-white border border-surface-300 rounded px-3 py-2 text-sm
+           text-surface-800 placeholder-surface-400
+           focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-300;
+  }
+
+  /* Depth indicator */
+  .depth-value {
+    @apply font-mono text-surface-900 font-bold;
+  }
+
+  /* Loading skeleton */
+  .skeleton {
+    @apply bg-surface-200 rounded animate-pulse;
+  }
+}
+
+/* ─── Utilities ───────────────────────────────────────────────────────────── */
+@layer utilities {
+  .text-2xs {
+    font-size: 0.625rem;
+    line-height: 1rem;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+}
+
+/* ─── Leaflet Map — Light Theme ───────────────────────────────────────────── */
+.leaflet-container {
+  background: #e8ecef !important;
+  font-family: 'Inter', sans-serif !important;
+}
+
+/* Remove the dark filter — use natural tile colors */
+.leaflet-tile {
+  filter: none !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+  color: #1e293b !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12) !important;
+}
+.leaflet-popup-tip {
+  background: #ffffff !important;
+}
+.leaflet-control-zoom a {
+  background: #ffffff !important;
+  color: #475569 !important;
+  border-color: #e2e8f0 !important;
+  font-weight: 600;
+}
+.leaflet-control-zoom a:hover {
+  background: #f1f5f9 !important;
+  color: #0066cc !important;
+}
+.leaflet-control-attribution {
+  background: rgba(255,255,255,0.85) !important;
+  color: #94a3b8 !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a { color: #64748b !important; }
