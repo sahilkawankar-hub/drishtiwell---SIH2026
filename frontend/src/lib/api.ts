@@ -106,6 +106,30 @@ export async function acknowledgeAlert(id: string): Promise<Alert> {
   return data.data;
 }
 
+export async function resolveAlert(id: string): Promise<Alert> {
+  const { data } = await api.patch<ApiResponse<Alert>>(`/alerts/${id}/resolve`);
+  return data.data;
+}
+
+export async function evaluateAlerts(params: {
+  wellId?: string;
+  depth?: number;
+  thresholdScore?: number;
+}): Promise<{
+  wellId: string;
+  wellName: string;
+  evaluatedDepth: number;
+  thresholdScore: number;
+  assessedRisksCount: number;
+  qualifyingRisksCount: number;
+  createdCount: number;
+  createdAlerts: Alert[];
+  existingActiveAlertsCount: number;
+}> {
+  const { data } = await api.post<ApiResponse<any>>('/alerts/evaluate', params);
+  return data.data;
+}
+
 // ─── Risks ───────────────────────────────────────────────────────────────────
 export async function getRisks(filters?: { wellId?: string; riskType?: string; status?: string }): Promise<RiskEvent[]> {
   const { data } = await api.get<ApiResponse<RiskEvent[]>>('/risks', { params: filters });

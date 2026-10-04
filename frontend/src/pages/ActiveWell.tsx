@@ -1,8 +1,10 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, Gauge, Thermometer, RefreshCw, Crosshair,
+  AlertTriangle, Gauge, RefreshCw, Crosshair,
   ArrowDown, ArrowUp, Shield, Eye, MapPin, Layers, ChevronDown, ChevronUp,
+  ShieldAlert,
 } from 'lucide-react';
 import { Card, MetricCard } from '../components/ui/Card';
 import { SeverityBadge, StatusBadge } from '../components/ui/Badge';
@@ -11,6 +13,7 @@ import {
   useActiveWell, useWellEvents, useWellParameters, useAlerts,
   useActiveWellIntelligence,
 } from '../hooks/useApi';
+import { evaluateAlerts } from '../lib/api';
 import {
   formatDepth, formatNumber, formatRelativeTime, formatDateTime,
   getEventTypeLabel, getSeverityTextColor,
@@ -23,6 +26,7 @@ import type { AssessedRisk, OffsetWellScore } from '../types';
 
 export default function ActiveWellPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data: well, isLoading, error, refetch } = useActiveWell();
 
   const wellId = well?.id || '';
@@ -30,15 +34,13 @@ export default function ActiveWellPage() {
   const { data: params = [] } = useWellParameters(wellId, 48);
   const { data: alerts = [] } = useAlerts({ wellId, status: 'ACTIVE' });
 
-  // ─── Depth Simulator ──────────────────────────────────────────────────
+  // Depth Simulator
   const [depthOverride, setDepthOverride] = useState<number | null>(null);
   const currentDepth = depthOverride ?? well?.currentDepth ?? 0;
 
-  // ─── Intelligence ─────────────────────────────────────────────────────
+  // Intelligence
   const intelligenceOptions = useMemo(() => {
-    if (depthOverride !== null) {
-      return { depth: depthOverride };
-    }
+    if (depthOverride !== null) return { depth: depthOverride };
     return undefined;
   }, [depthOverride]);
 
@@ -48,26 +50,63 @@ export default function ActiveWellPage() {
     refetch: refetchIntel,
   } = useActiveWellIntelligence(wellId || undefined, intelligenceOptions);
 
-  // ─── Expand states ────────────────────────────────────────────────────
+  // Expand states
   const [expandedRisk, setExpandedRisk] = useState<string | null>(null);
   const [showAllOffsets, setShowAllOffsets] = useState(false);
   const [showAllEvents, setShowAllEvents] = useState(false);
+  const [showCharts, setShowCharts] = useState(false);
+  const [showFormations, setShowFormations] = useState(false);
+  const [showEventLog, setShowEventLog] = useState(false);
+
+  // Alert evaluation
+  const [isEvaluatingAlerts, setIsEvaluatingAlerts] = useState(false);
+  const [evalMessage, setEvalMessage] = useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
+
+  const handleRunRiskCheck = async () => {
+    if (!well) return;
+    setIsEvaluatingAlerts(true);
+    setEvalMessage(null);
+    try {
+      const res = await evaluateAlerts({
+        wellId: well.id,
+        depth: currentDepth,
+        thresholdScore: 70,
+      });
+      queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['intelligence'] });
+
+      if (res.createdCount > 0) {
+        const labels = res.createdAlerts.map(a => `${a.severity} ${a.formation ? '(' + a.formation + ')' : ''}`).join(', ');
+        setEvalMessage({
+          type: 'success',
+          text: `Proactive Alert Triggered: ${res.createdCount} new operational alert generated at ${formatDepth(res.evaluatedDepth)} (${labels}). Threshold: score ≥ 70.`,
+        });
+      } else {
+        setEvalMessage({
+          type: 'info',
+          text: `Risk Check Complete at ${formatDepth(res.evaluatedDepth)}: Evaluated ${res.assessedRisksCount} hazard(s). No new alerts (${res.existingActiveAlertsCount} active/acknowledged alerts already recorded).`,
+        });
+      }
+    } catch (err: any) {
+      setEvalMessage({
+        type: 'error',
+        text: `Risk evaluation failed: ${err.message || 'Unknown error'}`,
+      });
+    } finally {
+      setIsEvaluatingAlerts(false);
+    }
+  };
 
   if (isLoading) return <Loading text="Loading active well data..." />;
   if (error || !well) return <ErrorMessage error={error as Error || new Error('Active well not found')} retry={refetch} />;
 
-  // Latest parameters
   const latestParam = well.drillingParameters?.[0] || params[0];
 
-  // Parameter time series for charts
+  // Chart data
   const chartData = [...params].reverse().slice(-24).map(p => ({
     time: new Date(p.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-    depth: p.depth,
     torque: p.torque,
     rop: p.rop,
-    wob: p.wob,
-    spp: p.standpipePressure,
-    mw: p.mudWeight,
   }));
 
   const currentFormation = well.formations?.find(f => f.isActive)?.formation;
@@ -81,83 +120,104 @@ export default function ActiveWellPage() {
   const displayedOffsets = showAllOffsets ? offsetWells : offsetWells.slice(0, 5);
   const displayedEvents = showAllEvents ? relevantEvents : relevantEvents.slice(0, 6);
 
-  // Critical alerts
   const criticalAlerts = alerts.filter(a => a.severity === 'CRITICAL');
 
   return (
-    <div className="space-y-4 max-w-[1600px] mx-auto pb-6">
-      {/* ─── 1. ACTIVE WELL HEADER ────────────────────────────────────────── */}
-      <div className="card p-4 border-l-4 border-l-teal-600 bg-white shadow-sm">
+    <div className="space-y-3.5 max-w-[1400px] mx-auto pb-6">
+      {/* ─── 1. WELL SUMMARY ──────────────────────────────────────────── */}
+      <div className="card p-4 border-l-4 border-l-teal-600 bg-white">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-2xs font-bold uppercase tracking-wider text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
-                Active Well Intelligence
-              </span>
-              <span className="text-xs text-surface-500 font-medium">
-                {well.field} · {well.block} · {well.operator}
-              </span>
-            </div>
-            <div className="flex items-baseline gap-3">
-              <h1 className="text-2xl font-bold text-surface-900 tracking-tight">{well.wellName}</h1>
-              <span className="text-xs font-mono text-surface-500">{well.wellId}</span>
-              <span className="text-xs font-medium text-surface-600">· {well.wellType} Well</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-2.5 py-1 bg-surface-50 rounded-md border border-surface-200">
-              <span className="status-dot-normal animate-pulse" />
               <StatusBadge status={well.status} />
+              <span className="text-xs text-surface-500">
+                {well.field} · {well.block} · {well.wellType}
+              </span>
             </div>
+            <h1 className="text-xl font-bold text-surface-900 tracking-tight">
+              {well.wellName}
+              <span className="text-xs font-mono font-normal text-surface-400 ml-2">{well.wellId}</span>
+            </h1>
+          </div>
+          <div className="flex items-center gap-3">
             <button
               id="active-well-refresh-btn"
               onClick={() => { refetch(); refetchIntel(); }}
               className="btn btn-ghost text-xs"
             >
-              <RefreshCw size={13} />
-              Refresh
+              <RefreshCw size={13} /> Refresh
             </button>
           </div>
         </div>
       </div>
 
-      {/* Critical Alert Panel (Clear light red alert panel, not a dark block) */}
+      {/* Critical Alert Banner */}
       {criticalAlerts.length > 0 && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3 shadow-xs">
-          <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5 text-status-critical">
-            <AlertTriangle size={18} />
-          </div>
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+          <AlertTriangle size={16} className="text-red-600 shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <div className="text-sm font-bold text-red-900 mb-0.5">
-              {criticalAlerts.length} Critical Alert(s) Active on Well
+              {criticalAlerts.length} Critical Alert{criticalAlerts.length > 1 ? 's' : ''}
             </div>
-            <div className="space-y-1">
-              {criticalAlerts.map(a => (
-                <div key={a.id} className="text-xs text-red-800 leading-relaxed">
-                  • <strong>{a.alertType}:</strong> {a.message}
-                </div>
-              ))}
-            </div>
+            {criticalAlerts.slice(0, 2).map(a => (
+              <div key={a.id} className="text-xs text-red-800">• {a.alertType}: {a.message}</div>
+            ))}
           </div>
-          <button
-            id="active-view-alerts-btn"
-            onClick={() => navigate('/alerts')}
-            className="btn btn-danger text-xs self-start shrink-0"
-          >
-            Review Alerts
+          <button id="active-view-alerts-btn" onClick={() => navigate('/alerts')} className="btn btn-danger text-xs shrink-0">
+            Review
           </button>
         </div>
       )}
 
-      {/* ─── 2. CURRENT DRILLING STATUS ──────────────────────────────────── */}
+      {/* Key Metrics Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MetricCard
+          label="Current Depth"
+          value={formatDepth(currentDepth)}
+          sub={`Target: ${well.totalDepth ? formatDepth(well.totalDepth) : 'TBD'}`}
+          icon={<Gauge size={18} />}
+          color="#0284c7"
+        />
+        <MetricCard
+          label="Formation"
+          value={<span className="text-teal-700 text-base">{intelFormationName || currentFormation?.name || well.currentFormation || 'Barail'}</span>}
+          sub={currentFormation?.ageEra || 'Upper Assam Basin'}
+          color="#0d9488"
+        />
+        <MetricCard
+          label="Offset Wells"
+          value={intelligence?.summary?.totalOffsetWells ?? '—'}
+          sub={intelligence ? `Nearest: ${intelligence.summary.nearestWellKm.toFixed(1)} km` : 'Analyzing...'}
+          icon={<MapPin size={18} />}
+          color="#0284c7"
+        />
+        <MetricCard
+          label="Risk Level"
+          value={
+            <span className={getSeverityTextColor(intelligence?.riskAssessment?.overallRiskLevel ?? 'LOW')}>
+              {intelligence?.riskAssessment?.overallRiskLevel ?? 'MODERATE'}
+            </span>
+          }
+          sub={`${risks.length} risk types · ${intelligence?.summary?.totalRelevantEvents ?? 0} events`}
+          icon={<Shield size={18} />}
+          color={risks.some(r => r.severity === 'CRITICAL') ? '#dc2626' : '#d97706'}
+          onClick={() => navigate('/risk-intelligence')}
+        />
+      </div>
+
+      {/* ─── 2. CURRENT DRILLING PARAMETERS ───────────────────────────── */}
       {latestParam && (
         <Card
-          title="Current Drilling Status & Real-Time Telemetry"
-          subtitle={`Surface sensors & telemetry as of ${formatDateTime(latestParam.timestamp)}`}
+          title="Current Parameters"
+          subtitle={`As of ${formatDateTime(latestParam.timestamp)}`}
           className="bg-white"
+          headerAction={
+            <button onClick={() => setShowCharts(!showCharts)} className="btn btn-ghost text-xs py-1">
+              {showCharts ? 'Hide Charts' : 'Show Trends'}
+            </button>
+          }
         >
-          <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-3">
+          <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2">
             {[
               { label: 'WOB', value: latestParam.wob, unit: 't', warn: 20, crit: 25 },
               { label: 'RPM', value: latestParam.rpm, unit: 'rpm', warn: 100, crit: 120 },
@@ -165,88 +225,52 @@ export default function ActiveWellPage() {
               { label: 'ROP', value: latestParam.rop, unit: 'm/hr', warn: null, crit: null },
               { label: 'MW', value: latestParam.mudWeight, unit: 'g/cc', warn: 1.42, crit: 1.45 },
               { label: 'SPP', value: latestParam.standpipePressure, unit: 'bar', warn: 280, crit: 310 },
-              { label: 'Flow Rate', value: latestParam.flowRate, unit: 'L/min', warn: null, crit: null },
-              { label: 'Hook Load', value: latestParam.hookLoad, unit: 't', warn: null, crit: null },
+              { label: 'Flow', value: latestParam.flowRate, unit: 'L/min', warn: null, crit: null },
+              { label: 'Hook', value: latestParam.hookLoad, unit: 't', warn: null, crit: null },
               { label: 'ECD', value: latestParam.ecd, unit: 'g/cc', warn: 1.43, crit: 1.46 },
             ].map(param => {
               const val = param.value ?? null;
-              const isWarn = param.warn !== null && val !== null && val > param.warn!;
               const isCrit = param.crit !== null && val !== null && val > param.crit!;
-              const valueColor = isCrit ? 'text-status-critical' : isWarn ? 'text-status-warning' : 'text-surface-900';
-              const cardBg = isCrit ? 'bg-red-50/60 border-red-200' : isWarn ? 'bg-amber-50/60 border-amber-200' : 'bg-surface-50 border-surface-200';
+              const isWarn = !isCrit && param.warn !== null && val !== null && val > param.warn!;
+              const valueColor = isCrit ? 'text-red-600' : isWarn ? 'text-amber-600' : 'text-surface-900';
+              const cardBg = isCrit ? 'bg-red-50 border-red-200' : isWarn ? 'bg-amber-50 border-amber-200' : 'bg-surface-50 border-surface-200';
 
               return (
-                <div key={param.label} className={`p-2.5 rounded-lg border text-center ${cardBg}`}>
-                  <div className="text-2xs font-bold text-surface-500 uppercase tracking-wider mb-0.5">{param.label}</div>
+                <div key={param.label} className={`p-2 rounded-lg border text-center ${cardBg}`}>
+                  <div className="text-2xs text-surface-500 mb-0.5">{param.label}</div>
                   <div className={`text-lg font-bold font-mono ${valueColor}`}>
                     {val !== null ? formatNumber(val) : '—'}
                   </div>
-                  <div className="text-2xs font-medium text-surface-400">{param.unit}</div>
-                  {isCrit ? (
-                    <span className="inline-block mt-0.5 px-1 py-0.2 text-3xs font-bold bg-red-100 text-red-800 rounded">
-                      Critical
-                    </span>
-                  ) : isWarn ? (
-                    <span className="inline-block mt-0.5 px-1 py-0.2 text-3xs font-bold bg-amber-100 text-amber-800 rounded">
-                      Elevated
-                    </span>
-                  ) : (
-                    <span className="inline-block mt-0.5 text-3xs text-surface-400">Normal</span>
-                  )}
+                  <div className="text-2xs text-surface-400">{param.unit}</div>
                 </div>
               );
             })}
           </div>
 
-          {/* Real-time parameter charts */}
-          {chartData.length > 0 && (
+          {/* Expandable charts */}
+          {showCharts && chartData.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-surface-100">
-              <div className="p-2 bg-surface-50/60 rounded-md border border-surface-200">
-                <div className="text-2xs font-bold uppercase tracking-wider text-surface-600 mb-1 flex items-center justify-between">
-                  <span>Torque Trend (Last 24 readings)</span>
-                  <span className="text-amber-700 font-mono text-2xs">Warn &gt; 20 kN.m</span>
-                </div>
-                <ResponsiveContainer width="100%" height={120}>
+              <div className="p-2 bg-surface-50 rounded-md border border-surface-200">
+                <div className="text-2xs text-surface-500 mb-1">Torque Trend (Last 24 readings)</div>
+                <ResponsiveContainer width="100%" height={110}>
                   <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 9 }} />
                     <YAxis tick={{ fill: '#64748b', fontSize: 9 }} />
-                    <Tooltip
-                      contentStyle={{
-                        background: '#ffffff',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                        color: '#0f172a'
-                      }}
-                    />
+                    <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '11px', color: '#0f172a' }} />
                     <ReferenceLine y={20} stroke="#d97706" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="torque" stroke="#d97706" strokeWidth={2} dot={false} name="Torque (kN.m)" />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-
-              <div className="p-2 bg-surface-50/60 rounded-md border border-surface-200">
-                <div className="text-2xs font-bold uppercase tracking-wider text-surface-600 mb-1 flex items-center justify-between">
-                  <span>ROP Trend (Rate of Penetration)</span>
-                  <span className="text-teal-700 font-mono text-2xs">Live ROP</span>
-                </div>
-                <ResponsiveContainer width="100%" height={120}>
+              <div className="p-2 bg-surface-50 rounded-md border border-surface-200">
+                <div className="text-2xs text-surface-500 mb-1">ROP Trend</div>
+                <ResponsiveContainer width="100%" height={110}>
                   <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 9 }} />
                     <YAxis tick={{ fill: '#64748b', fontSize: 9 }} />
-                    <Tooltip
-                      contentStyle={{
-                        background: '#ffffff',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                        color: '#0f172a'
-                      }}
-                    />
+                    <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '11px', color: '#0f172a' }} />
                     <Line type="monotone" dataKey="rop" stroke="#0d9488" strokeWidth={2} dot={false} name="ROP (m/hr)" />
                   </LineChart>
                 </ResponsiveContainer>
@@ -256,65 +280,35 @@ export default function ActiveWellPage() {
         </Card>
       )}
 
-      {/* ─── 3. DEPTH + FORMATION + OFFSET WELLS + RISK (METRICS) ────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <MetricCard
-          label="Current Depth (MD)"
-          value={<span className="text-surface-900 font-bold">{formatDepth(currentDepth)}</span>}
-          sub={`Target TD: ${well.totalDepth ? formatDepth(well.totalDepth) : 'TBD'}`}
-          icon={<Gauge size={18} />}
-          color="#0284c7"
-        />
-        <MetricCard
-          label="Current Formation"
-          value={<span className="text-teal-700 font-bold text-base">{intelFormationName || currentFormation?.name || well.currentFormation || 'Barail Formation'}</span>}
-          sub={currentFormation?.ageEra || 'Upper Assam Basin'}
-          icon={<Thermometer size={18} />}
-          color="#0d9488"
-        />
-        <MetricCard
-          label="Offset Wells Analyzed"
-          value={intelligence?.summary?.totalOffsetWells ?? '8'}
-          sub={intelligence ? `Nearest: ${intelligence.summary.nearestWellKm.toFixed(1)} km` : 'Duliajan operational field'}
-          icon={<MapPin size={18} />}
-          color="#0284c7"
-        />
-        <MetricCard
-          label="Computed Risk Level"
-          value={
-            <span className={getSeverityTextColor(intelligence?.riskAssessment?.overallRiskLevel ?? 'LOW')}>
-              {intelligence?.riskAssessment?.overallRiskLevel ?? 'MODERATE'}
-            </span>
-          }
-          sub={`${risks.length} active risk types · ${intelligence?.summary?.totalRelevantEvents ?? 0} events`}
-          icon={<Shield size={18} />}
-          color={risks.some(r => r.severity === 'CRITICAL') ? '#dc2626' : risks.some(r => r.severity === 'HIGH') ? '#ea580c' : '#d97706'}
-          onClick={() => navigate('/risk-intelligence')}
-        />
-      </div>
-
-      {/* ─── 4. DEPTH SIMULATOR ─────────────────────────────────────────── */}
+      {/* ─── 3. DEPTH SIMULATOR ───────────────────────────────────────── */}
       <Card
-        title="Depth Simulator & Look-Ahead Engine"
-        subtitle="Simulate target depth to dynamically recalculate risks, formation boundaries, and offset well incidents"
+        title="Depth Simulator"
+        subtitle="Simulate depth to recalculate risks and offset incidents"
         className="bg-white"
         headerAction={
-          depthOverride !== null && (
+          <div className="flex items-center gap-2">
+            {depthOverride !== null && (
+              <button className="btn btn-ghost text-xs" onClick={() => setDepthOverride(null)}>
+                Reset to Live ({formatDepth(well.currentDepth)})
+              </button>
+            )}
             <button
-              className="btn btn-ghost text-xs"
-              onClick={() => setDepthOverride(null)}
+              id="run-risk-check-btn"
+              onClick={handleRunRiskCheck}
+              disabled={isEvaluatingAlerts}
+              className="btn btn-primary text-xs py-1 px-3 flex items-center gap-1.5 font-semibold"
             >
-              Reset to Live ({formatDepth(well.currentDepth)})
+              <ShieldAlert size={13} />
+              {isEvaluatingAlerts ? 'Evaluating...' : 'Run Risk Check'}
             </button>
-          )
+          </div>
         }
       >
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <div className="flex items-center gap-2 shrink-0">
-            <Crosshair size={16} className="text-primary-600" />
-            <span className="text-xs font-semibold text-surface-700">Simulated Depth:</span>
+            <Crosshair size={14} className="text-primary-600" />
+            <span className="text-xs text-surface-600">Depth:</span>
           </div>
-
           <div className="flex-1 flex items-center gap-3">
             <input
               id="depth-simulator-slider"
@@ -326,65 +320,72 @@ export default function ActiveWellPage() {
               onChange={(e) => setDepthOverride(Number(e.target.value))}
               className="flex-1 accent-primary-600 h-2 bg-surface-200 rounded-lg cursor-pointer"
             />
-            <div className="flex items-center gap-1 shrink-0">
-              <input
-                id="depth-simulator-input"
-                type="number"
-                value={currentDepth}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  if (!isNaN(val) && val >= 0) setDepthOverride(val);
-                }}
-                className="form-input w-24 text-center font-mono font-bold text-sm py-1"
-              />
-              <span className="text-surface-500 text-xs font-semibold">m</span>
-            </div>
+            <input
+              id="depth-simulator-input"
+              type="number"
+              value={currentDepth}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                if (!isNaN(val) && val >= 0) setDepthOverride(val);
+              }}
+              className="form-input w-20 text-center font-mono font-bold text-xs py-1"
+            />
+            <span className="text-surface-400 text-xs">m</span>
           </div>
-
-          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
-            <button
-              className="btn btn-ghost px-2.5 py-1 text-xs"
-              onClick={() => setDepthOverride(Math.max(0, currentDepth - 50))}
-              title="Step back 50m"
-            >
-              <ArrowUp size={13} /> −50m
+          <div className="flex items-center gap-1 shrink-0">
+            <button className="btn btn-ghost px-2 py-1 text-xs" onClick={() => setDepthOverride(Math.max(0, currentDepth - 50))}>
+              <ArrowUp size={12} /> −50m
             </button>
-            <button
-              className="btn btn-ghost px-2.5 py-1 text-xs"
-              onClick={() => setDepthOverride(currentDepth + 50)}
-              title="Step forward 50m"
-            >
-              <ArrowDown size={13} /> +50m
+            <button className="btn btn-ghost px-2 py-1 text-xs" onClick={() => setDepthOverride(currentDepth + 50)}>
+              <ArrowDown size={12} /> +50m
             </button>
           </div>
         </div>
 
         {depthOverride !== null && (
-          <div className="mt-2.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-900 flex items-center justify-between">
-            <span>
-              ⚡ Simulation Mode Active: <strong>{formatDepth(depthOverride)}</strong> (Live well depth: {formatDepth(well.currentDepth)})
-            </span>
-            <span className="text-2xs text-amber-700 font-mono">Look-ahead intelligence active</span>
+          <div className="mt-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+            Simulation: <strong>{formatDepth(depthOverride)}</strong> (live: {formatDepth(well.currentDepth)})
+          </div>
+        )}
+
+        {evalMessage && (
+          <div
+            className={`mt-2.5 px-3 py-2 rounded-lg text-xs flex items-center justify-between gap-2 border ${
+              evalMessage.type === 'success'
+                ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                : evalMessage.type === 'error'
+                ? 'bg-red-50 text-red-900 border-red-200'
+                : 'bg-teal-50 text-teal-900 border-teal-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-bold">
+                {evalMessage.type === 'success' ? 'Alert Created' : evalMessage.type === 'error' ? 'Evaluation Failed' : 'Check Complete'}:
+              </span>
+              <span>{evalMessage.text}</span>
+            </div>
+            <button
+              onClick={() => navigate('/alerts')}
+              className="underline font-semibold shrink-0 hover:opacity-80"
+            >
+              View Alerts &rarr;
+            </button>
           </div>
         )}
       </Card>
 
-      {/* ─── 5. RISK ASSESSMENT ─────────────────────────────────────────── */}
+      {/* ─── 4. RISK ASSESSMENT ───────────────────────────────────────── */}
       <Card
-        title="Risk Assessment & Multi-Well Evidence"
-        subtitle={`${risks.length} calculated operational risk(s) at depth ${formatDepth(currentDepth)} from ${offsetWells.length} offset wells`}
+        title="Risk Assessment"
+        subtitle={`${risks.length} risk(s) at ${formatDepth(currentDepth)} from ${offsetWells.length} offset wells`}
         className="bg-white"
       >
         {intelLoading && risks.length === 0 ? (
-          <div className="py-8 text-center text-surface-500 text-xs">
-            <div className="animate-pulse">Computing multi-well spatial risk scores...</div>
-          </div>
+          <div className="py-6 text-center text-surface-400 text-xs animate-pulse">Computing risk scores...</div>
         ) : risks.length === 0 ? (
-          <div className="py-6 text-center text-surface-500 text-xs">
-            No high-probability risks identified for the current depth horizon.
-          </div>
+          <div className="py-6 text-center text-surface-400 text-xs">No high-probability risks at current depth.</div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {risks.map((risk) => (
               <RiskCard
                 key={risk.riskType}
@@ -397,113 +398,69 @@ export default function ActiveWellPage() {
         )}
       </Card>
 
-      {/* ─── 6. HISTORICAL EVIDENCE (Events Near Current Depth) ─────────── */}
-      {relevantEvents.length > 0 && (
-        <Card
-          title="Historical Evidence Near Current Depth"
-          subtitle={`${relevantEvents.length} historical offset event(s) recorded within ±${intelligence?.depthWindow ?? 150}m of ${formatDepth(currentDepth)}`}
-          className="bg-white"
-          headerAction={
-            relevantEvents.length > 6 && (
-              <button
-                className="btn btn-ghost text-xs py-1"
-                onClick={() => setShowAllEvents(!showAllEvents)}
-              >
-                {showAllEvents ? 'Show Less' : `Show All (${relevantEvents.length})`}
-              </button>
-            )
-          }
-        >
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Source Offset Well</th>
-                  <th>Event Type</th>
-                  <th>Event Depth</th>
-                  <th>Depth Delta</th>
-                  <th>Severity</th>
-                  <th>Incident Description</th>
-                  <th>NPT (hrs)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayedEvents.map(event => (
-                  <tr key={event.id}>
-                    <td className="font-semibold text-primary-700 text-xs">{event.wellName}</td>
-                    <td className="font-medium text-surface-900 text-xs">{getEventTypeLabel(event.eventType)}</td>
-                    <td className="font-mono text-surface-800 text-xs">{formatDepth(event.depth)}</td>
-                    <td className="font-mono text-xs">
-                      <span className={Math.abs(event.depthDelta) <= 50 ? 'text-status-critical font-bold' : Math.abs(event.depthDelta) <= 100 ? 'text-status-warning font-semibold' : 'text-surface-600'}>
-                        {event.depthDelta >= 0 ? '+' : ''}{event.depthDelta}m
-                      </span>
-                    </td>
-                    <td><SeverityBadge severity={event.severity}>{event.severity}</SeverityBadge></td>
-                    <td className="max-w-md truncate text-surface-600 text-xs">{event.description}</td>
-                    <td className="font-mono text-surface-700 text-xs">{event.nptHours ?? '—'}</td>
+      {/* ─── 5. HISTORICAL EVIDENCE & OFFSET WELLS ────────────────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3.5">
+        {/* Evidence Table */}
+        {relevantEvents.length > 0 && (
+          <Card
+            title="Historical Evidence"
+            subtitle={`${relevantEvents.length} events within ±${intelligence?.depthWindow ?? 150}m`}
+            className="xl:col-span-2 bg-white"
+            headerAction={
+              relevantEvents.length > 6 && (
+                <button className="btn btn-ghost text-xs py-1" onClick={() => setShowAllEvents(!showAllEvents)}>
+                  {showAllEvents ? 'Less' : `All (${relevantEvents.length})`}
+                </button>
+              )
+            }
+          >
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Source Well</th>
+                    <th>Event</th>
+                    <th>Depth</th>
+                    <th>Delta</th>
+                    <th>Severity</th>
+                    <th>NPT</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
+                </thead>
+                <tbody>
+                  {displayedEvents.map(event => (
+                    <tr key={event.id}>
+                      <td className="text-primary-700 font-semibold text-xs">{event.wellName}</td>
+                      <td className="text-xs text-surface-800">{getEventTypeLabel(event.eventType)}</td>
+                      <td className="font-mono text-xs text-surface-700">{formatDepth(event.depth)}</td>
+                      <td className="font-mono text-xs">
+                        <span className={Math.abs(event.depthDelta) <= 50 ? 'text-red-600 font-bold' : Math.abs(event.depthDelta) <= 100 ? 'text-amber-600' : 'text-surface-500'}>
+                          {event.depthDelta >= 0 ? '+' : ''}{event.depthDelta}m
+                        </span>
+                      </td>
+                      <td><SeverityBadge severity={event.severity}>{event.severity}</SeverityBadge></td>
+                      <td className="font-mono text-xs text-surface-600">{event.nptHours ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
 
-      {/* ─── 7. RECOMMENDATION & OFFSET BENCHMARKING ────────────────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        {/* Recommendation Panel */}
-        <Card
-          title="AI & Engineering Recommendations"
-          subtitle="Proactive drilling advisory based on offset evidence"
-          className="xl:col-span-2 bg-white"
-        >
-          <div className="space-y-3">
-            {risks.slice(0, 3).map((r, i) => (
-              <div key={r.riskType} className="p-3 rounded-lg border border-surface-200 bg-surface-50/70">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="w-5 h-5 rounded-full bg-primary-100 text-primary-700 font-bold text-xs flex items-center justify-center shrink-0">
-                    {i + 1}
-                  </span>
-                  <span className="text-xs font-bold text-surface-900">{r.riskLabel} Mitigation Advisory</span>
-                  <SeverityBadge severity={r.severity}>{r.severity}</SeverityBadge>
-                  <span className="ml-auto text-2xs font-mono text-surface-500">Confidence: {(r.confidence * 100).toFixed(0)}%</span>
-                </div>
-                <div className="text-xs text-surface-700 leading-relaxed bg-white p-2.5 rounded border border-surface-200">
-                  <strong className="text-teal-800">Action Plan: </strong>
-                  {r.recommendedAction}
-                </div>
-                <div className="mt-1.5 flex items-center gap-2 text-2xs text-surface-500">
-                  <span className="font-medium text-surface-600">Based on {r.eventCount} incident(s) from {r.sourceWells.length} offset well(s):</span>
-                  <span>{r.sourceWells.map(s => s.wellName).slice(0, 3).join(', ')}</span>
-                </div>
-              </div>
-            ))}
-
-            {risks.length === 0 && (
-              <div className="p-4 text-center text-surface-500 text-xs">
-                Drilling parameters are within standard operating envelope for current depth.
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Offset Wells Similarity List */}
+        {/* Offset Wells List */}
         <Card
           title="Top Offset Wells"
-          subtitle={`${offsetWells.length} wells ranked by geological & spatial proximity`}
+          subtitle={`${offsetWells.length} ranked by proximity`}
           className="bg-white"
           headerAction={
             offsetWells.length > 5 && (
-              <button
-                className="btn btn-ghost text-xs py-1"
-                onClick={() => setShowAllOffsets(!showAllOffsets)}
-              >
+              <button className="btn btn-ghost text-xs py-1" onClick={() => setShowAllOffsets(!showAllOffsets)}>
                 {showAllOffsets ? 'Less' : `All (${offsetWells.length})`}
               </button>
             )
           }
         >
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {displayedOffsets.map((offset) => (
               <OffsetWellRow
                 key={offset.well.id}
@@ -515,77 +472,121 @@ export default function ActiveWellPage() {
         </Card>
       </div>
 
-      {/* Formation Profile & Recent Well Events */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {/* Formation Column */}
-        {well.formations && well.formations.length > 0 && (
-          <Card title="Formation Column (Lithology Depth Log)" subtitle="Stratigraphic sequence for active well" className="bg-white">
-            <div className="space-y-1.5">
-              {[...well.formations].sort((a, b) => a.topDepth - b.topDepth).map(wf => {
-                const isCurrentInSim = currentDepth >= wf.topDepth && currentDepth <= wf.bottomDepth;
-                return (
-                  <div
-                    key={wf.id}
-                    className={`flex items-center gap-3 p-2 rounded-md border transition-colors ${
-                      isCurrentInSim
-                        ? 'bg-teal-50 border-teal-300 shadow-xs'
-                        : 'bg-surface-50 border-surface-200'
-                    }`}
-                  >
-                    <div className="text-xs font-mono font-medium text-surface-600 w-24 text-right">
-                      {wf.topDepth}–{wf.bottomDepth}m
-                    </div>
-                    <div
-                      className="w-3.5 h-3.5 rounded-sm shrink-0"
-                      style={{ backgroundColor: getFormationColor(wf.formation.code) }}
-                    />
-                    <div className="flex-1 text-xs font-semibold text-surface-800">
-                      {wf.formation.name}
-                    </div>
-                    {isCurrentInSim && (
-                      <span className="badge badge-normal text-2xs">
-                        Active Formation
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        )}
-
-        {/* Recent Events Log */}
-        <Card title="Active Well Operational Events" subtitle="Latest drilling events recorded" className="bg-white">
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Event Type</th>
-                  <th>Depth</th>
-                  <th>Severity</th>
-                  <th>Description</th>
-                  <th>Logged</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.slice(0, 6).map(event => (
-                  <tr key={event.id}>
-                    <td className="font-semibold text-surface-900 text-xs">{getEventTypeLabel(event.eventType)}</td>
-                    <td className="font-mono text-surface-800 text-xs">{formatDepth(event.depth)}</td>
-                    <td><SeverityBadge severity={event.severity}>{event.severity}</SeverityBadge></td>
-                    <td className="max-w-xs truncate text-surface-600 text-xs">{event.description}</td>
-                    <td className="text-surface-500 text-2xs">{formatRelativeTime(event.timestamp)}</td>
-                  </tr>
-                ))}
-                {events.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="text-center text-surface-500 text-xs py-4">No events recorded</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+      {/* ─── 6. RECOMMENDED ACTIONS ───────────────────────────────────── */}
+      {risks.length > 0 && (
+        <Card
+          title="Recommended Actions"
+          subtitle="Proactive advisory based on offset evidence"
+          className="bg-white"
+        >
+          <div className="space-y-2.5">
+            {risks.slice(0, 3).map((r, i) => (
+              <div key={r.riskType} className="p-3 rounded-lg border border-surface-200 bg-surface-50">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="w-5 h-5 rounded-full bg-primary-100 text-primary-700 font-bold text-xs flex items-center justify-center shrink-0">
+                    {i + 1}
+                  </span>
+                  <span className="text-xs font-bold text-surface-900">{r.riskLabel}</span>
+                  <SeverityBadge severity={r.severity}>{r.severity}</SeverityBadge>
+                  <span className="ml-auto text-2xs font-mono text-surface-400">{(r.confidence * 100).toFixed(0)}%</span>
+                </div>
+                <div className="text-xs text-teal-900 bg-teal-50 border border-teal-200 p-2 rounded leading-relaxed">
+                  {r.recommendedAction}
+                </div>
+                <div className="mt-1 text-2xs text-surface-400">
+                  Based on {r.eventCount} incident(s) from {r.sourceWells.length} well(s)
+                </div>
+              </div>
+            ))}
           </div>
         </Card>
+      )}
+
+      {/* ─── EXPANDABLE: Formation Column & Well Events ────────────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3.5">
+        {/* Formation Column */}
+        {well.formations && well.formations.length > 0 && (
+          <div className="card bg-white">
+            <button
+              onClick={() => setShowFormations(!showFormations)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left"
+            >
+              <div>
+                <h3 className="text-sm font-semibold text-surface-900">Formation Column</h3>
+                <p className="text-xs text-surface-500">{well.formations.length} formations</p>
+              </div>
+              {showFormations ? <ChevronUp size={16} className="text-surface-400" /> : <ChevronDown size={16} className="text-surface-400" />}
+            </button>
+            {showFormations && (
+              <div className="px-4 pb-4 space-y-1.5">
+                {[...well.formations].sort((a, b) => a.topDepth - b.topDepth).map(wf => {
+                  const isCurrentInSim = currentDepth >= wf.topDepth && currentDepth <= wf.bottomDepth;
+                  return (
+                    <div
+                      key={wf.id}
+                      className={`flex items-center gap-3 p-2 rounded border ${
+                        isCurrentInSim ? 'bg-teal-50 border-teal-200' : 'bg-surface-50 border-surface-200'
+                      }`}
+                    >
+                      <div className="text-xs font-mono text-surface-500 w-24 text-right">
+                        {wf.topDepth}–{wf.bottomDepth}m
+                      </div>
+                      <div
+                        className="w-3 h-3 rounded-sm shrink-0"
+                        style={{ backgroundColor: getFormationColor(wf.formation.code) }}
+                      />
+                      <div className="flex-1 text-xs font-semibold text-surface-800">{wf.formation.name}</div>
+                      {isCurrentInSim && <span className="badge badge-normal text-2xs">Active</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Well Events */}
+        <div className="card bg-white">
+          <button
+            onClick={() => setShowEventLog(!showEventLog)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left"
+          >
+            <div>
+              <h3 className="text-sm font-semibold text-surface-900">Well Event Log</h3>
+              <p className="text-xs text-surface-500">{events.length} events recorded</p>
+            </div>
+            {showEventLog ? <ChevronUp size={16} className="text-surface-400" /> : <ChevronDown size={16} className="text-surface-400" />}
+          </button>
+          {showEventLog && (
+            <div className="px-4 pb-4 overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Event</th>
+                    <th>Depth</th>
+                    <th>Severity</th>
+                    <th>Description</th>
+                    <th>Logged</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {events.slice(0, 8).map(event => (
+                    <tr key={event.id}>
+                      <td className="font-semibold text-surface-800 text-xs">{getEventTypeLabel(event.eventType)}</td>
+                      <td className="font-mono text-surface-700 text-xs">{formatDepth(event.depth)}</td>
+                      <td><SeverityBadge severity={event.severity}>{event.severity}</SeverityBadge></td>
+                      <td className="max-w-xs truncate text-surface-600 text-xs">{event.description}</td>
+                      <td className="text-surface-400 text-2xs">{formatRelativeTime(event.timestamp)}</td>
+                    </tr>
+                  ))}
+                  {events.length === 0 && (
+                    <tr><td colSpan={5} className="text-center text-surface-400 text-xs py-4">No events</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -598,94 +599,73 @@ function RiskCard({ risk, isExpanded, onToggle }: {
   isExpanded: boolean;
   onToggle: () => void;
 }) {
-  const severityStyles: Record<string, { card: string; score: string }> = {
-    CRITICAL: { card: 'border-red-200 bg-red-50/50', score: '#dc2626' },
-    HIGH:     { card: 'border-amber-200 bg-amber-50/40', score: '#ea580c' },
-    MEDIUM:   { card: 'border-amber-200 bg-amber-50/30', score: '#d97706' },
-    LOW:      { card: 'border-surface-200 bg-surface-50', score: '#16a34a' },
-  };
+  const borderColor =
+    risk.severity === 'CRITICAL' ? 'border-red-200 bg-red-50/40' :
+    risk.severity === 'HIGH' ? 'border-amber-200 bg-amber-50/30' :
+    'border-surface-200 bg-surface-50';
 
-  const currentStyle = severityStyles[risk.severity] ?? severityStyles.LOW;
+  const scoreColor =
+    risk.severity === 'CRITICAL' ? '#dc2626' :
+    risk.severity === 'HIGH' ? '#ea580c' :
+    risk.severity === 'MEDIUM' ? '#d97706' : '#16a34a';
 
   return (
-    <div className={`rounded-lg border p-3 transition-all ${currentStyle.card}`}>
-      {/* Header */}
+    <div className={`rounded-lg border p-3 ${borderColor}`}>
       <div className="flex items-center justify-between cursor-pointer select-none" onClick={onToggle}>
         <div className="flex items-center gap-3">
-          <div className="flex flex-col items-center justify-center w-12 h-12 bg-white rounded-md border border-surface-200 shadow-2xs">
-            <div className="text-xl font-bold font-mono leading-none" style={{ color: currentStyle.score }}>
+          <div className="flex flex-col items-center justify-center w-10 h-10 bg-white rounded border border-surface-200 shrink-0">
+            <div className="text-lg font-bold font-mono leading-none" style={{ color: scoreColor }}>
               {risk.riskScore}
             </div>
-            <div className="text-3xs font-semibold text-surface-400 uppercase mt-0.5">Risk</div>
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-surface-900">{risk.riskLabel}</span>
               <SeverityBadge severity={risk.severity}>{risk.severity}</SeverityBadge>
             </div>
-            <div className="text-xs text-surface-600 mt-0.5 max-w-xl">
-              {risk.detectionReason}
-            </div>
+            <div className="text-xs text-surface-500 mt-0.5 max-w-xl line-clamp-1">{risk.detectionReason}</div>
           </div>
         </div>
-
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className="text-right hidden sm:block">
-            <div className="text-2xs text-surface-400 font-semibold uppercase">Confidence</div>
-            <div className="text-xs font-mono font-bold text-surface-800">{Math.round(risk.confidence * 100)}%</div>
+            <div className="text-2xs text-surface-400">Confidence</div>
+            <div className="text-xs font-mono font-bold text-surface-700">{Math.round(risk.confidence * 100)}%</div>
           </div>
-          <div className="text-right hidden sm:block">
-            <div className="text-2xs text-surface-400 font-semibold uppercase">Incidents</div>
-            <div className="text-xs font-mono font-bold text-surface-800">{risk.eventCount}</div>
-          </div>
-          <button className="p-1 rounded hover:bg-surface-200/60 text-surface-500">
+          <button className="p-1 rounded hover:bg-surface-200/60 text-surface-400">
             {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
         </div>
       </div>
 
-      {/* Expanded detail */}
       {isExpanded && (
-        <div className="mt-3 pt-3 border-t border-surface-200/80 space-y-3">
-          {/* Evidence */}
+        <div className="mt-3 pt-3 border-t border-surface-200/80 space-y-2.5">
           <div>
-            <div className="text-2xs text-surface-500 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-              <Eye size={12} className="text-primary-600" /> Multi-Well Historical Evidence
+            <div className="text-2xs text-surface-500 font-semibold mb-1 flex items-center gap-1">
+              <Eye size={11} className="text-primary-600" /> Evidence
             </div>
             <ul className="space-y-1">
               {risk.evidence.map((e, i) => (
-                <li key={i} className="text-xs text-surface-700 flex items-start gap-2 bg-white/70 p-1.5 rounded border border-surface-200">
-                  <span className="text-primary-600 font-bold mt-0.5">•</span>
-                  <span>{e}</span>
+                <li key={i} className="text-xs text-surface-700 bg-white/70 p-1.5 rounded border border-surface-200">
+                  • {e}
                 </li>
               ))}
             </ul>
           </div>
-
-          {/* Source Wells */}
           <div>
-            <div className="text-2xs text-surface-500 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-              <Layers size={12} className="text-primary-600" /> Correlated Offset Wells
+            <div className="text-2xs text-surface-500 font-semibold mb-1 flex items-center gap-1">
+              <Layers size={11} className="text-primary-600" /> Source Wells
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {risk.sourceWells.map((sw) => (
-                <span key={sw.wellId} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-surface-200 text-xs text-surface-800 shadow-2xs font-medium">
-                  <MapPin size={11} className="text-primary-600" />
-                  {sw.wellName} · {sw.distanceKm.toFixed(1)} km · {formatDepth(sw.eventDepth)}
-                  <SeverityBadge severity={sw.eventSeverity}>{sw.eventSeverity}</SeverityBadge>
+                <span key={sw.wellId} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-surface-200 text-xs text-surface-700">
+                  <MapPin size={10} className="text-primary-600" />
+                  {sw.wellName} · {sw.distanceKm.toFixed(1)}km · {formatDepth(sw.eventDepth)}
                 </span>
               ))}
             </div>
           </div>
-
-          {/* Recommended Action */}
-          <div>
-            <div className="text-2xs text-teal-800 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-              <Shield size={12} className="text-teal-700" /> Recommended Engineering Mitigation
-            </div>
-            <div className="text-xs text-teal-900 bg-teal-50 border border-teal-200 rounded-md p-2.5 font-medium leading-relaxed">
-              {risk.recommendedAction}
-            </div>
+          <div className="text-xs text-teal-900 bg-teal-50 border border-teal-200 rounded p-2 leading-relaxed">
+            <strong>Action:</strong> {risk.recommendedAction}
           </div>
         </div>
       )}
@@ -696,41 +676,23 @@ function RiskCard({ risk, isExpanded, onToggle }: {
 // ─── Offset Well Row ─────────────────────────────────────────────────────────
 
 function OffsetWellRow({ offset, onNavigate }: { offset: OffsetWellScore; onNavigate: () => void }) {
-  const scoreColor = offset.similarityScore >= 70 ? 'text-teal-700' : offset.similarityScore >= 40 ? 'text-amber-700' : 'text-surface-600';
+  const scoreColor = offset.similarityScore >= 70 ? 'text-teal-700' : offset.similarityScore >= 40 ? 'text-amber-700' : 'text-surface-500';
 
   return (
     <div
-      className="flex items-center gap-2.5 p-2 rounded-md bg-surface-50 hover:bg-surface-100 border border-surface-200 transition-colors cursor-pointer"
+      className="flex items-center gap-2 p-2 rounded bg-surface-50 hover:bg-surface-100 border border-surface-200 cursor-pointer transition-colors"
       onClick={onNavigate}
     >
-      {/* Score */}
-      <div className="flex flex-col items-center justify-center w-10 h-10 bg-white rounded border border-surface-200 shrink-0">
-        <div className={`text-sm font-bold font-mono ${scoreColor}`}>
-          {offset.similarityScore}
-        </div>
-        <div className="text-3xs text-surface-400 font-semibold uppercase">match</div>
+      <div className={`text-sm font-bold font-mono ${scoreColor} w-8 text-center`}>
+        {offset.similarityScore}
       </div>
-
-      {/* Well info */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-bold text-surface-900 truncate">{offset.well.wellName}</span>
-          <StatusBadge status={offset.well.status} />
-        </div>
-        <div className="text-2xs text-surface-500 mt-0.5">
-          {offset.distanceKm.toFixed(1)} km away · TD: {formatDepth(offset.well.currentDepth)}
+        <div className="text-xs font-bold text-surface-800 truncate">{offset.well.wellName}</div>
+        <div className="text-2xs text-surface-400">
+          {offset.distanceKm.toFixed(1)} km · {formatDepth(offset.well.currentDepth)} · {offset.relevantEvents.length} events
         </div>
       </div>
-
-      {/* Formations and events count */}
-      <div className="text-right shrink-0">
-        <div className="text-2xs font-mono font-semibold text-surface-700">
-          {offset.relevantEvents.length} event(s)
-        </div>
-        <div className="text-3xs text-surface-400">
-          {offset.formationMatch.matchedFormations.length} formations
-        </div>
-      </div>
+      <StatusBadge status={offset.well.status} />
     </div>
   );
 }
